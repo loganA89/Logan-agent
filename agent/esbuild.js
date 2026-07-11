@@ -34,7 +34,7 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'out/extension.js',
-    external: ['vscode'],
+    external: ['vscode', '@xenova/transformers', 'onnxruntime-node', 'sharp'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
   });
