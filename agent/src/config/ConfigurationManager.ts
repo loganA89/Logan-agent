@@ -19,6 +19,7 @@ export type SupportedProviderType =
   | 'ollama'
   | 'openrouter'
   | 'perchance'
+  | 'local'
   | 'custom';
 
 export interface TierProviderConfig {
@@ -106,19 +107,20 @@ export class ConfigurationManager {
    */
   public getTierConfig(tier: 'light' | 'medium' | 'heavy' | 'embedding' | 'image' | 'audio'): TierProviderConfig {
     const config = this.getConfig();
-    const tierObj = config.get<Record<string, string>>(`tiers.${tier}`, {});
     const globalApiKey = this.getApiKey();
     const globalBaseUrl = this.getBaseUrl();
     const plan = this.getActivePlan();
     const legacyOverrides = this.getModelOverrides();
 
-    const customProvider = tierObj.providerType || tierObj.provider as SupportedProviderType | undefined;
-    const customApiKey = tierObj.apiKey && tierObj.apiKey.trim() !== '' ? tierObj.apiKey.trim() : globalApiKey;
-    const customBaseUrl = tierObj.baseUrl && tierObj.baseUrl.trim() !== '' ? tierObj.baseUrl.trim() : globalBaseUrl;
-    const customModel = tierObj.model && tierObj.model.trim() !== '' ? tierObj.model.trim() : undefined;
+    const customProviderStr = config.get<string>(`tiers.${tier}.providerType`, '').trim();
+    const rawApiKey = config.get<string>(`tiers.${tier}.apiKey`, '').trim();
+    const customApiKey = rawApiKey !== '' ? rawApiKey : globalApiKey;
+    const rawBaseUrl = config.get<string>(`tiers.${tier}.baseUrl`, '').trim();
+    const customBaseUrl = rawBaseUrl !== '' ? rawBaseUrl : globalBaseUrl;
+    const customModel = config.get<string>(`tiers.${tier}.model`, '').trim();
 
-    if (customModel || customProvider) {
-      const providerType = (customProvider || 'openai') as SupportedProviderType;
+    if (customModel !== '' || customProviderStr !== '') {
+      const providerType = (customProviderStr || 'openai') as SupportedProviderType;
       return {
         providerType,
         apiKey: customApiKey,

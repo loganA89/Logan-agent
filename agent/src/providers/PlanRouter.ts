@@ -2,6 +2,8 @@ import { ConfigurationManager } from '../config';
 import { AIProvider, ProviderConfig } from './types';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider';
 import { AnthropicProvider } from './AnthropicProvider';
+import { PerchanceProvider } from './PerchanceProvider';
+import { LocalEmbeddingProvider } from './LocalEmbeddingProvider';
 
 export type TaskComplexity = 'LIGHT' | 'MEDIUM' | 'HEAVY' | 'EMBEDDING' | 'IMAGE' | 'AUDIO';
 
@@ -54,8 +56,7 @@ export class PlanRouter {
     const tierKey = this.mapComplexityToTier(complexity);
     const tierConfig = ConfigurationManager.getInstance().getTierConfig(tierKey);
 
-    const isAnthropicModel = tierConfig.providerType === 'anthropic' || tierConfig.model.toLowerCase().includes('claude');
-    const cacheKey = `${isAnthropicModel ? 'anthropic' : 'openai'}|${tierConfig.baseUrl || 'default'}|${tierConfig.model}`;
+    const cacheKey = `${tierConfig.providerType}|${tierConfig.baseUrl || 'default'}|${tierConfig.model}`;
 
     let provider = this.activeProviders.get(cacheKey);
     if (!provider) {
@@ -65,7 +66,12 @@ export class PlanRouter {
         defaultModel: tierConfig.model,
       };
 
-      if (isAnthropicModel) {
+      if (tierConfig.providerType === 'local' || (complexity === 'EMBEDDING' && !providerConfig.apiKey)) {
+        const modelName = tierConfig.model || 'Xenova/all-MiniLM-L6-v2';
+        provider = new LocalEmbeddingProvider(modelName);
+      } else if (tierConfig.providerType === 'perchance') {
+        provider = new PerchanceProvider(providerConfig);
+      } else if (tierConfig.providerType === 'anthropic' || tierConfig.model.toLowerCase().includes('claude')) {
         provider = new AnthropicProvider(providerConfig);
       } else {
         provider = new OpenAICompatibleProvider(providerConfig);
@@ -76,7 +82,7 @@ export class PlanRouter {
     return {
       provider,
       model: tierConfig.model,
-      isCachedProvider: isAnthropicModel,
+      isCachedProvider: tierConfig.providerType === 'anthropic' || tierConfig.model.toLowerCase().includes('claude'),
     };
   }
 
