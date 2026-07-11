@@ -1,121 +1,211 @@
-# Current Task — Phase 3: Local Embedding, Router Integration & Cleanup
+# Current Task — Phase 4: Fix Phase 3 Defect + Quality & Release Readiness
 
 ## Status: PENDING — Awaiting Developer Agent
 
 ## Objective
-Complete the provider integration by wiring PerchanceProvider and LocalEmbeddingProvider into the PlanRouter, add `'local'` to SupportedProviderType, and do essential repository cleanup (.gitignore, remove tracked build artifacts). Each sub-task must pass `tsc --noEmit` + `node esbuild.js` with 0 errors.
-
-## Reference Source
-Donor code: `Logan-agent/agent/src/` — current baseline: `agent/src/`
+Fix the incomplete sub-task from Phase 3, then prepare the project for release readiness: add a test framework, create essential metadata files, and validate the full build + package pipeline.
 
 ---
 
-## Sub-Task 3.1 — Add LocalEmbeddingProvider
-**New file:** `agent/src/providers/LocalEmbeddingProvider.ts`
+## 🔴 URGENT FIX — Phase 3 Defect (Must be done FIRST)
 
-Copy from `Logan-agent/agent/src/providers/LocalEmbeddingProvider.ts`. This provider:
-- Uses `@xenova/transformers` for free on-device embedding (all-MiniLM-L6-v2)
-- Dynamic imports the module so the extension works even if it's not installed
-- Implements `embed()` method with batch processing
-- Has stub `complete()` and `stream()` that just echo (it's an embedding-only provider)
+### Sub-Task 4.0 — Fix Missing @xenova/transformers Dependency & esbuild Externals
 
-**Commit message:** `feat: add LocalEmbeddingProvider for zero-cost on-device embeddings`
+The Architect Agent verified Phase 3 and found that **sub-task 3.5 was not properly completed**:
 
----
+**Problem 1**: `@xenova/transformers` is NOT in `package.json` dependencies. The `LocalEmbeddingProvider.ts` does `import('@xenova/transformers')` but the package isn't declared.
 
-## Sub-Task 3.2 — Add 'local' to SupportedProviderType
-**Files to modify:** `agent/src/config/ConfigurationManager.ts`
+**Problem 2**: `esbuild.js` still has `external: ['vscode']` only — `@xenova/transformers` and `onnxruntime-node` were NOT added to externals.
 
-Add `| 'local'` to the `SupportedProviderType` union type. Currently it has `'perchance'` but NOT `'local'`.
-
-**Commit message:** (combine with 3.3)
-
----
-
-## Sub-Task 3.3 — Wire PerchanceProvider & LocalEmbeddingProvider into PlanRouter
-**Files to modify:** `agent/src/providers/PlanRouter.ts`
-
-The current PlanRouter only knows about `OpenAICompatibleProvider` and `AnthropicProvider`. Update it to match the v0.3.0 version:
-
-1. Import `PerchanceProvider` and `LocalEmbeddingProvider`
-2. Update the `cacheKey` to use `tierConfig.providerType` instead of just `anthropic`/`openai`
-3. Add routing logic for `'local'` provider type (and fallback when EMBEDDING tier has no API key):
-   ```typescript
-   if (tierConfig.providerType === 'local' || (complexity === 'EMBEDDING' && !providerConfig.apiKey)) {
-     const modelName = tierConfig.model || 'Xenova/all-MiniLM-L6-v2';
-     provider = new LocalEmbeddingProvider(modelName);
-     // ... return early
-   }
-   ```
-4. Add routing for `'perchance'`:
-   ```typescript
-   if (tierConfig.providerType === 'perchance') {
-     provider = new PerchanceProvider(providerConfig);
-   }
-   ```
-
-Reference: `Logan-agent/agent/src/providers/PlanRouter.ts`
-
-**Commit message:** `feat: wire PerchanceProvider and LocalEmbeddingProvider into PlanRouter`
-
----
-
-## Sub-Task 3.4 — Update Provider Exports
-**Files to modify:** `agent/src/providers/index.ts`
-
-Add exports for `PerchanceProvider` and `LocalEmbeddingProvider`:
-```typescript
-export * from './PerchanceProvider';
-export * from './LocalEmbeddingProvider';
+**Fix for package.json** — Add to dependencies:
+```json
+"dependencies": {
+  "openai": "^6.45.0",
+  "@xenova/transformers": "^2.17.2"
+}
 ```
 
-**Commit message:** (combine with 3.3)
-
----
-
-## Sub-Task 3.5 — Add @xenova/transformers as Optional Dependency + esbuild External
-**Files to modify:**
-- `agent/package.json` — Add `"@xenova/transformers": "^2.17.2"` to `dependencies`
-- `agent/esbuild.js` — Add `'@xenova/transformers'` and `'onnxruntime-node'` to the `external` array alongside `'vscode'`
-
-The esbuild external change is **critical** — without it, esbuild will try to bundle native `.node` binary files and fail with 7 errors (this was the original v0.3.0 build failure).
-
-The esbuild config should look like:
+**Fix for esbuild.js** — Update the external array:
 ```javascript
 external: ['vscode', '@xenova/transformers', 'onnxruntime-node'],
 ```
 
-**Commit message:** `fix: add @xenova/transformers as dependency and externalize native modules in esbuild`
+**Verification**: After fixing, run:
+```bash
+npm install
+npx tsc --noEmit          # Must exit 0
+node esbuild.js           # Must exit 0
+```
+
+Without this fix, `tsc` fails with: `TS2307: Cannot find module '@xenova/transformers'`
+
+**Commit message:** `fix: add @xenova/transformers to dependencies and externalize native modules in esbuild`
 
 ---
 
-## Sub-Task 3.6 — Repository Cleanup
-**New file:** `agent/.gitignore`
-**Files to remove from git tracking:** `agent/out/extension.js`, `agent/out/extension.js.map`
+## Sub-Task 4.1 — Add Test Framework (vitest)
+**New files:**
+- `agent/vitest.config.ts`
+- `agent/src/__tests__/terminalScrubber.test.ts`
+- `agent/src/__tests__/chunker.test.ts`
 
-Create `agent/.gitignore`:
+**Files to modify:** `agent/package.json` — add vitest to devDependencies and `"test"` script
+
+Set up a minimal test framework:
+
+1. Install vitest: add `"vitest": "^3.2.0"` to devDependencies
+2. Create `vitest.config.ts`:
+```typescript
+import { defineConfig } from 'vitest/config';
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['src/__tests__/**/*.test.ts'],
+  },
+});
 ```
-node_modules/
-out/
-.vscode-test/
-*.vsix
+3. Add test script to package.json: `"test": "vitest run"`
+4. Write 2 basic unit tests for modules that have NO VS Code dependency:
+
+**Test 1: `terminalScrubber.test.ts`** — Test the `scrubTerminalOutput` function:
+- Test empty input returns empty string
+- Test ANSI code stripping
+- Test duplicate line deduplication
+- Test truncation over 100 lines
+
+**Test 2: `chunker.test.ts`** — Test the `Chunker.chunkFile` function:
+- Test empty file returns empty array
+- Test small file produces 1 chunk
+- Test large file produces multiple chunks with overlap
+- Test chunk IDs contain file path
+
+These are pure functions with no VS Code API dependency, so they can run in Node.js.
+
+**Commit message:** `test: add vitest framework with unit tests for terminalScrubber and Chunker`
+
+---
+
+## Sub-Task 4.2 — Create Essential Metadata Files
+**New files:**
+- `agent/README.md`
+- `agent/CHANGELOG.md`
+- `agent/.vscodeignore`
+
+**README.md** — Brief project description:
+```markdown
+# Logan Agent
+
+AI-powered autonomous coding assistant for Visual Studio Code.
+
+## Features
+- Multi-step ReAct (Reason → Act → Observe) execution
+- Native tool calling with OpenAI, Anthropic, DeepSeek, and more
+- Real-time streaming with auto-continue
+- File read/write/edit with checkpoint rollback
+- apply_diff (unified diff and SEARCH/REPLACE blocks)
+- Terminal command execution with output scrubbing
+- Git tools (status, diff, commit, log)
+- Todo/task planning
+- Semantic codebase search (RAG) with local embeddings
+- VS Code diagnostics integration
+- Image and audio generation
+- Multi-vendor provider routing (Economy/Pro plans)
+- Session management with conversation memory compaction
+
+## Requirements
+- VS Code 1.85.0+
+- Node.js 18+
+- At least one AI provider API key (or use Perchance/Ollama for free)
+
+## Installation
+1. Clone this repository
+2. `cd agent && npm install`
+3. Press F5 in VS Code to launch Extension Development Host
+4. Configure your API key in Settings → Logan Agent
+
+## License
+MIT
 ```
 
-Remove build artifacts from git tracking (but not from disk):
+**CHANGELOG.md**:
+```markdown
+# Changelog
+
+## [0.3.0] - 2026-07-11
+### Added
+- Native tool calling (OpenAI SDK) replacing XML-based tool parsing
+- Real-time streaming with tool_call delta aggregation
+- Auto-continue (up to 3 rounds of 50 steps)
+- apply_diff tool (unified diff + SEARCH/REPLACE blocks)
+- Git tools (status, diff, commit, log)
+- Todo/task planning tool
+- VS Code diagnostics tool
+- Image generation tool
+- Local embedding provider (transformers.js, zero-cost)
+- Perchance provider (free community generators)
+- Provider settings modal in sidebar UI
+- Stream delta rendering in sidebar
+- Prompt caching for Anthropic
+
+### Fixed
+- ToolCategory type drift between ToolRegistry and UI types
+- esbuild native module bundling errors
+- package.json dependency classification
+
+## [0.2.0] - 2026-07-10
+### Initial
+- ReAct loop engine with XML tool parsing
+- File read/write/edit tools
+- Terminal command execution with scrubbing
+- Web search (Tavily + DuckDuckGo)
+- Semantic codebase search (RAG)
+- Checkpoint engine for time-travel rollback
+- Session management
+- Memory compaction
+- Provider routing (Economy/Pro plans)
+- Sidebar webview UI
+```
+
+**.vscodeignore**:
+```
+.vscode/**
+.vscode-test/**
+src/**
+node_modules/**
+*.ts
+!out/**
+.gitignore
+vitest.config.ts
+tsconfig.json
+esbuild.js
+*.map
+```
+
+**Commit message:** `docs: add README, CHANGELOG, and .vscodeignore`
+
+---
+
+## Sub-Task 4.3 — Validate vsce Package
+**No file changes** — just run verification:
+
 ```bash
 cd agent
-git rm --cached out/extension.js out/extension.js.map
+npm install -g @vscode/vsce
+vsce package --no-dependencies
 ```
 
-**Commit message:** `chore: add .gitignore, remove tracked build artifacts`
+If `vsce` errors out, fix whatever is missing (usually `icon`, `repository` field in package.json, or file paths).
+
+Report what happens. If it produces a `.vsix` file, report the file size.
+
+**Commit message:** (only if fixes are needed) `fix: resolve vsce packaging issues`
 
 ---
 
 ## Execution Order
 
-3.1 → 3.2+3.3+3.4 (one commit) → 3.5 → 3.6
-
-After 3.5, re-run `npm install` + `node esbuild.js` to verify the external configuration works.
+**4.0 (URGENT FIX)** → 4.1 → 4.2 → 4.3
 
 ## Verification Gates
 ```bash
@@ -123,19 +213,22 @@ cd agent/
 npm install
 npx tsc --noEmit          # Must exit 0
 node esbuild.js           # Must exit 0
-ls -la out/extension.js   # Must exist and be >10KB
+npm test                  # Must pass all tests
+ls -la out/extension.js   # Must exist
 ```
 
 ## Report Format
 ```
 ## Task Report
-- **Task**: Phase 3: Local Embedding, Router Integration & Cleanup
+- **Task**: Phase 4: Fix + Quality & Release Readiness
 - **Status**: COMPLETED / BLOCKED / PARTIAL
 - **Sub-tasks completed**: [list]
-- **Changes**: [files created/modified/removed]
+- **Changes**: [files]
 - **Verification**:
   - tsc: PASS/FAIL
   - esbuild: PASS/FAIL
+  - tests: PASS/FAIL (X passed, Y failed)
+  - vsce package: PASS/FAIL (size if pass)
   - extension.js size: [size]
 - **Commits**: [list]
 - **Notes**: [any issues]
