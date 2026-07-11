@@ -48,7 +48,7 @@ export type ExtensionEventType =
   | 'CHAT_LOADED'
   | 'AVAILABLE_TOOLS_DATA';
 
-export type ToolCategory = 'File Ops' | 'Terminal' | 'Search & RAG' | 'Media';
+export type ToolCategory = 'File Ops' | 'Terminal' | 'Search & RAG' | 'Media' | 'Git' | 'Task Planning';
 
 export interface ToolMetadataItem {
   name: string;
