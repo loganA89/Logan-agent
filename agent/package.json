@@ -5,7 +5,7 @@
   "version": "0.3.0",
   "publisher": "logan-team",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.125.0"
   },
   "categories": [
     "AI",
