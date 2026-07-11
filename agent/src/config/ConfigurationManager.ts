@@ -20,6 +20,7 @@ export type SupportedProviderType =
   | 'openrouter'
   | 'perchance'
   | 'local'
+  | 'cerebras'
   | 'custom';
 
 export interface TierProviderConfig {
@@ -97,6 +98,8 @@ export class ConfigurationManager {
         return 'https://api.openai.com/v1';
       case 'anthropic':
         return 'https://api.anthropic.com';
+      case 'cerebras':
+        return 'https://api.cerebras.ai/v1';
       default:
         return undefined;
     }

@@ -58,6 +58,10 @@ export class PlanRouter {
 
     const cacheKey = `${tierConfig.providerType}|${tierConfig.baseUrl || 'default'}|${tierConfig.model}`;
 
+    // Debug logging for provider selection
+    console.log(`[PlanRouter] Routing task complexity: ${complexity} -> Tier: ${tierKey}`);
+    console.log(`[PlanRouter] Selected Config: Provider=${tierConfig.providerType}, Model=${tierConfig.model}, BaseUrl=${tierConfig.baseUrl || 'default'}, HasApiKey=${!!tierConfig.apiKey}`);
+
     let provider = this.activeProviders.get(cacheKey);
     if (!provider) {
       const providerConfig: ProviderConfig = {
