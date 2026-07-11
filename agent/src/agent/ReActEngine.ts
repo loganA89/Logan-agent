@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { AgentState, AgentMessage } from './types';
-import { PlanRouter, TaskComplexity, TokenUsageMetrics, CompletionResult } from '../providers';
+import { PlanRouter, TaskComplexity, TokenUsageMetrics, ToolCall } from '../providers';
 import { ToolRegistry } from '../tools';
 import { MemoryManager } from './MemoryManager';
 import { LoganLogger } from '../utils';
@@ -10,118 +10,57 @@ import { FileIndexer } from '../rag';
 export interface ReActExecutionOptions {
   complexity?: TaskComplexity;
   systemPromptOverride?: string;
+  autoContinue?: boolean;
+  maxAutoContinues?: number;
+  useStreaming?: boolean;
   onStateChange?: (state: AgentState) => void;
   onStepLog?: (step: number, log: string) => void;
   onUsageMetrics?: (metrics: TokenUsageMetrics) => void;
   onReasoningDelta?: (delta: string) => void;
+  onContentDelta?: (delta: string) => void;
   onToolStart?: (toolName: string, args: Record<string, unknown>) => void;
   onToolEnd?: (toolName: string, observation: string) => void;
   onDiffProposed?: (filePath: string, checkpointId?: string) => void;
+  onAutoContinue?: (round: number, totalSteps: number) => void;
 }
 
 export interface ExtractedToolCall {
   name: string;
   arguments: Record<string, unknown>;
+  id?: string;
   isSyntaxError?: boolean;
   errorMessage?: string;
 }
 
 /**
- * Extracts tool invocations from both native tool call arrays and raw XML tags with robust JSON error recovery.
+ * Legacy XML extractor - kept for backward compatibility.
+ * Native tool calling is now preferred.
  */
-export function extractToolCalls(messageContent: string, nativeToolCalls?: unknown[]): ExtractedToolCall[] {
-  const parsedCalls: ExtractedToolCall[] = [];
-
-  if (nativeToolCalls && Array.isArray(nativeToolCalls) && nativeToolCalls.length > 0) {
-    for (const tc of nativeToolCalls) {
-      const item = tc as { function?: { name?: string; arguments?: unknown }; name?: string; arguments?: unknown };
-      const name = item.function?.name || item.name;
-      const rawArgs = item.function?.arguments !== undefined ? item.function.arguments : item.arguments;
-      if (name) {
-        let argsObj: Record<string, unknown> = {};
-        if (typeof rawArgs === 'string') {
-          try {
-            argsObj = JSON.parse(rawArgs);
-          } catch {
-            parsedCalls.push({
-              name: '__SYNTAX_ERROR__',
-              arguments: {},
-              isSyntaxError: true,
-              errorMessage: '[Tool Execution Error: Malformed JSON syntax in <tool_call>. Please output valid JSON with "name" and "arguments" keys.]',
-            });
-            continue;
-          }
-        } else if (rawArgs && typeof rawArgs === 'object') {
-          argsObj = rawArgs as Record<string, unknown>;
-        }
-        parsedCalls.push({ name, arguments: argsObj });
-      }
-    }
+export function extractToolCalls(messageContent: string, nativeToolCalls?: ToolCall[]): ExtractedToolCall[] {
+  if (nativeToolCalls && nativeToolCalls.length > 0) {
+    return nativeToolCalls.map(tc => ({ name: tc.name, arguments: tc.arguments, id: tc.id }));
   }
-
+  const parsedCalls: ExtractedToolCall[] = [];
   const xmlRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
   let match: RegExpExecArray | null;
   while ((match = xmlRegex.exec(messageContent)) !== null) {
-    const rawInner = match[1].trim();
     try {
-      const payload = JSON.parse(rawInner);
-      if (payload && payload.name) {
-        parsedCalls.push({
-          name: payload.name,
-          arguments: payload.arguments || {},
-        });
-      } else {
-        parsedCalls.push({
-          name: '__SYNTAX_ERROR__',
-          arguments: {},
-          isSyntaxError: true,
-          errorMessage: '[Tool Execution Error: Malformed JSON syntax in <tool_call>. Please output valid JSON with "name" and "arguments" keys.]',
-        });
-      }
+      const payload = JSON.parse(match[1].trim());
+      if (payload?.name) parsedCalls.push({ name: payload.name, arguments: payload.arguments || {} });
     } catch {
-      parsedCalls.push({
-        name: '__SYNTAX_ERROR__',
-        arguments: {},
-        isSyntaxError: true,
-        errorMessage: '[Tool Execution Error: Malformed JSON syntax in <tool_call>. Please output valid JSON with "name" and "arguments" keys.]',
-      });
+      parsedCalls.push({ name: '__SYNTAX_ERROR__', arguments: {}, isSyntaxError: true, errorMessage: '[Tool Execution Error: Malformed JSON]' });
     }
   }
-
-  if (parsedCalls.length > 0) {
-    return parsedCalls;
-  }
-
-  const actionRegex = /<action>([\s\S]*?)<\/action>/g;
-  while ((match = actionRegex.exec(messageContent)) !== null) {
-    const rawInner = match[1].trim();
-    try {
-      const payload = JSON.parse(rawInner);
-      const name = payload.tool || payload.name;
-      if (name) {
-        parsedCalls.push({
-          name,
-          arguments: payload.arguments || {},
-        });
-      }
-    } catch {
-      parsedCalls.push({
-        name: '__SYNTAX_ERROR__',
-        arguments: {},
-        isSyntaxError: true,
-        errorMessage: '[Tool Execution Error: Malformed JSON syntax in <tool_call>. Please output valid JSON with "name" and "arguments" keys.]',
-      });
-    }
-  }
-
   return parsedCalls;
 }
 
 /**
- * Autonomous Reasoning and Acting (ReAct) Engine enforcing step limits, context compaction, and fault-tolerant tool recovery.
+ * Autonomous Reasoning and Acting (ReAct) Engine
+ * v0.3.1 - Native tool calling + Auto-continue
  */
 export class ReActEngine {
-  private static readonly MAX_STEPS = 10;
+  private static readonly MAX_STEPS = 50;
+  private static readonly MAX_AUTO_CONTINUES = 3;
   private state: AgentState = 'IDLE';
   private readonly memoryManager: MemoryManager = new MemoryManager();
   private abortController: AbortController | undefined;
@@ -147,37 +86,37 @@ export class ReActEngine {
     }
   }
 
-  public parseToolCalls(responseText: string): ExtractedToolCall[] {
-    return extractToolCalls(responseText);
+  public parseToolCalls(responseText: string, native?: ToolCall[]): ExtractedToolCall[] {
+    return extractToolCalls(responseText, native);
   }
 
   private buildDefaultSystemPrompt(): string {
-    const toolDefs = ToolRegistry.getInstance().getToolDefinitions();
-    const formattedTools = toolDefs
-      .map((t) => `- ${t.name}: ${t.description}\n  Schema: ${JSON.stringify(t.inputSchema)}`)
-      .join('\n\n');
-
     return `You are Logan Agent, an elite autonomous AI coding assistant integrated into Visual Studio Code.
-You follow strict ReAct (Reason -> Act -> Observe) reasoning loops.
+
+You have access to native function calling tools. Call tools directly when needed.
 
 [CRITICAL DIRECTIVE: STRICT ENGLISH ONLY]
-Regardless of the language used by the user prompt or workspace code comments, all internal reasoning (<thought>...</thought>) and tool parameters MUST be written exclusively in professional English.
+Regardless of the user language, all internal reasoning and tool parameters MUST be in professional English.
 
-[AVAILABLE TOOLS]
-To execute an action, emit one or more <tool_call> XML tags containing a JSON object matching the exact tool schema:
-<tool_call>
-{"name": "tool_name", "arguments": {"arg1": "value1"}}
-</tool_call>
+[Task Planning]
+For any complex multi-step task (3+ steps), you MUST first call todo_list to create a task breakdown plan.
+- Mark tasks as in_progress when starting, completed when finished
+- Only ONE task should be in_progress at a time
+- Update the todo list frequently to track progress
 
-Registered Tools:
-${formattedTools}
+Workflow:
+1. If task is complex: create todo_list plan first
+2. Think step by step about the task
+3. Call appropriate tools to read files, search codebase, edit, run terminal, etc.
+4. After each edit: run read_diagnostics to verify no regressions
+5. Observe results and iterate, updating todos
+6. When done, provide a direct answer to the user
 
-When you have completed all tasks or verified the final solution, respond directly to the user without emitting tool calls.`;
+Available tool categories: File Ops, Terminal, Search & RAG, Git, Task Planning, Media
+
+Be concise, accurate, and autonomous.`;
   }
 
-  /**
-   * Executes the autonomous multi-step reasoning loop for a user prompt.
-   */
   public async executeTask(prompt: string, options?: ReActExecutionOptions): Promise<string> {
     const logger = LoganLogger.getInstance();
     const complexity = options?.complexity || 'MEDIUM';
@@ -185,9 +124,12 @@ When you have completed all tasks or verified the final solution, respond direct
     const router = PlanRouter.getInstance();
     const { provider } = router.routeTask(complexity);
 
+    const toolDefs = ToolRegistry.getInstance().getToolDefinitions();
+    const autoContinue = options?.autoContinue ?? true;
+    const maxAutoContinues = options?.maxAutoContinues ?? ReActEngine.MAX_AUTO_CONTINUES;
+
     logger.logInfo(`Starting ReAct task execution with prompt: "${prompt}" (Complexity: ${complexity})`);
 
-    // JIT Indexing Milestone 1: Task Start
     logger.logInfo('Executing JIT sync of dirty workspace files at task start...');
     await FileIndexer.getInstance().syncDirtyFiles();
 
@@ -198,18 +140,56 @@ When you have completed all tasks or verified the final solution, respond direct
     this.memoryManager.appendMessage({ role: 'user', content: prompt });
 
     let stepCount = 0;
+    let autoContinueCount = 0;
+    let totalSteps = 0;
 
-    while (stepCount < ReActEngine.MAX_STEPS) {
+    while (true) {
       if (signal.aborted) {
         this.setState('IDLE', options?.onStateChange);
         return '[Generation Aborted by User]';
       }
 
+      if (stepCount >= ReActEngine.MAX_STEPS) {
+        // Auto-continue logic
+        if (autoContinue && autoContinueCount < maxAutoContinues) {
+          autoContinueCount++;
+          stepCount = 0;
+          totalSteps += ReActEngine.MAX_STEPS;
+          
+          const continueMsg = `[SYSTEM AUTO-CONTINUE ${autoContinueCount}/${maxAutoContinues}] You have reached ${ReActEngine.MAX_STEPS} steps. Continue the task autonomously from where you left off. Summarize progress briefly, then continue with the next logical tool calls. Do NOT repeat already completed work.`;
+          
+          logger.logInfo(`Auto-continue ${autoContinueCount}/${maxAutoContinues} triggered at ${totalSteps} total steps`);
+          if (options?.onAutoContinue) {
+            options.onAutoContinue(autoContinueCount, totalSteps);
+          }
+          if (options?.onStepLog) {
+            options.onStepLog(0, `🔄 Auto-continue ${autoContinueCount}/${maxAutoContinues} – resuming task...`);
+          }
+
+          this.memoryManager.appendMessage({
+            role: 'user',
+            content: continueMsg
+          });
+
+          continue;
+        }
+
+        // No more auto-continues left
+        this.setState('IDLE', options?.onStateChange);
+        const emergencyWarning = `[Safety Circuit Breaker Triggered] Logan Agent reached the maximum execution limit (${ReActEngine.MAX_STEPS} steps × ${autoContinueCount + 1} rounds = ${totalSteps + ReActEngine.MAX_STEPS} total steps) without converging. Autonomous execution halted to protect context window and token expenditure.`;
+        logger.logError('Safety Circuit Breaker limit reached.');
+        this.memoryManager.appendMessage({ role: 'assistant', content: emergencyWarning });
+        await FileIndexer.getInstance().syncDirtyFiles();
+        return emergencyWarning;
+      }
+
       stepCount++;
-      logger.logInfo(`Executing ReAct Step ${stepCount}/${ReActEngine.MAX_STEPS}`);
+      totalSteps++;
+      logger.logInfo(`Executing ReAct Step ${stepCount}/${ReActEngine.MAX_STEPS} (round ${autoContinueCount + 1}, total ${totalSteps})`);
 
       if (options?.onStepLog) {
-        options.onStepLog(stepCount, `Initiating ReAct step ${stepCount}/${ReActEngine.MAX_STEPS}...`);
+        const roundSuffix = autoContinueCount > 0 ? ` (R${autoContinueCount + 1})` : '';
+        options.onStepLog(stepCount, `Initiating ReAct step ${stepCount}/${ReActEngine.MAX_STEPS}${roundSuffix}...`);
       }
 
       if (this.memoryManager.shouldCompact()) {
@@ -221,20 +201,66 @@ When you have completed all tasks or verified the final solution, respond direct
       }
 
       const activeMessages = this.memoryManager.getMessages();
-      const providerMessages = activeMessages.map((m) => ({
-        role: m.role === 'tool' ? 'user' : m.role,
-        content: m.role === 'tool' ? `[Tool Observation]\n${m.content}` : m.content,
-      }));
 
-      let result: CompletionResult;
+      let assistantResponse = '';
+      let toolCalls: ToolCall[] = [];
+
       try {
-        result = await provider.complete(prompt, {
-          systemPrompt,
-          messages: providerMessages,
-          onUsageMetrics: options?.onUsageMetrics,
-          onReasoningDelta: options?.onReasoningDelta,
-          abortSignal: signal,
-        });
+        const useStreaming = options?.useStreaming ?? true;
+        if (useStreaming && provider.stream) {
+          // Streaming mode with tool_call aggregation
+          const toolCallBuffers: Map<number, { id?: string; name: string; arguments: string }> = new Map();
+          for await (const chunk of provider.stream(prompt, {
+            systemPrompt,
+            messages: activeMessages as any,
+            tools: toolDefs,
+            cacheBreakpoints: true,
+            onUsageMetrics: options?.onUsageMetrics,
+            onReasoningDelta: options?.onReasoningDelta,
+            onContentDelta: options?.onContentDelta,
+            abortSignal: signal,
+          })) {
+            if (signal.aborted) break;
+            if (chunk.contentDelta) {
+              assistantResponse += chunk.contentDelta;
+            }
+            if (chunk.reasoningDelta && options?.onReasoningDelta) {
+              options.onReasoningDelta(chunk.reasoningDelta);
+            }
+            if (chunk.toolCallDelta) {
+              const idx = chunk.toolCallDelta.index ?? 0;
+              const buf = toolCallBuffers.get(idx) || { name: '', arguments: '' };
+              if (chunk.toolCallDelta.id) buf.id = chunk.toolCallDelta.id;
+              if (chunk.toolCallDelta.name) buf.name = chunk.toolCallDelta.name;
+              if (chunk.toolCallDelta.argumentsDelta) buf.arguments += chunk.toolCallDelta.argumentsDelta;
+              toolCallBuffers.set(idx, buf);
+            }
+          }
+          // Finalize tool calls
+          for (const [, buf] of toolCallBuffers) {
+            if (!buf.name) continue;
+            let argsObj: Record<string, unknown> = {};
+            try {
+              argsObj = buf.arguments ? JSON.parse(buf.arguments) : {};
+            } catch {
+              argsObj = {};
+            }
+            toolCalls.push({ id: buf.id, name: buf.name, arguments: argsObj });
+          }
+        } else {
+          // Fallback buffered completion
+          const assistantResult = await provider.complete(prompt, {
+            systemPrompt,
+            messages: activeMessages as any,
+            tools: toolDefs,
+            cacheBreakpoints: true,
+            onUsageMetrics: options?.onUsageMetrics,
+            onReasoningDelta: options?.onReasoningDelta,
+            abortSignal: signal,
+          });
+          assistantResponse = assistantResult.content || '';
+          toolCalls = assistantResult.toolCalls || [];
+        }
       } catch (error) {
         if (signal.aborted) {
           this.setState('IDLE', options?.onStateChange);
@@ -246,23 +272,19 @@ When you have completed all tasks or verified the final solution, respond direct
         throw new Error(`[ReActEngine] Provider API completion failed: ${errStr}`);
       }
 
-      if (signal.aborted) {
-        this.setState('IDLE', options?.onStateChange);
-        return '[Generation Aborted by User]';
-      }
+      // Save assistant message with tool_calls metadata
+      this.memoryManager.appendMessage({ 
+        role: 'assistant', 
+        content: assistantResponse,
+        tool_calls: toolCalls.length ? toolCalls : undefined
+      } as any);
 
-      this.memoryManager.appendMessage({ role: 'assistant', content: result.content });
-
-      const toolCalls = extractToolCalls(result.content, result.toolCalls);
       if (toolCalls.length === 0) {
-        logger.logInfo(`Step ${stepCount} converged to final answer (0 tool calls).`);
+        logger.logInfo(`Step ${stepCount} converged to final answer (0 tool calls). Total steps: ${totalSteps}`);
         this.setState('IDLE', options?.onStateChange);
-
-        // JIT Indexing Milestone 2: Task Completion
         logger.logInfo('Executing JIT sync of modified files upon task convergence...');
         await FileIndexer.getInstance().syncDirtyFiles();
-
-        return result.content;
+        return assistantResponse || 'Task completed.';
       }
 
       logger.logInfo(`Extracted ${toolCalls.length} tool call(s): ${toolCalls.map((c) => c.name).join(', ')}`);
@@ -282,34 +304,29 @@ When you have completed all tasks or verified the final solution, respond direct
         }
 
         let observation: string;
-        if (call.isSyntaxError) {
-          observation = call.errorMessage || '[Tool Execution Error: Malformed JSON syntax in <tool_call>. Please output valid JSON with "name" and "arguments" keys.]';
-          logger.logError(`Syntax error intercepted in tool call "${call.name}": ${observation}`);
-        } else {
-          try {
-            observation = await ToolRegistry.getInstance().executeTool(call.name, call.arguments);
-            logger.logInfo(`Tool "${call.name}" executed successfully. Output length: ${observation.length}`);
+        try {
+          observation = await ToolRegistry.getInstance().executeTool(call.name, call.arguments);
+          logger.logInfo(`Tool "${call.name}" executed successfully. Output length: ${observation.length}`);
 
-            if (call.name === 'edit_file' || call.name === 'create_file') {
-              const targetPath = call.arguments.path;
-              if (typeof targetPath === 'string' && vscode.workspace.workspaceFolders?.[0]) {
-                const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-                const fileUri = vscode.Uri.file(path.resolve(root, targetPath));
-                await FileIndexer.getInstance().indexSingleFile(fileUri);
-              }
+          if (call.name === 'edit_file' || call.name === 'create_file' || call.name === 'apply_diff') {
+            const targetPath = call.arguments.path as string | undefined;
+            if (targetPath && vscode.workspace.workspaceFolders?.[0]) {
+              const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
+              const fileUri = vscode.Uri.file(path.resolve(root, targetPath));
+              await FileIndexer.getInstance().indexSingleFile(fileUri).catch(()=>{});
             }
-          } catch (toolError) {
-            const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
-            observation = `[Tool Execution Error for "${call.name}"]: ${errMsg}\nAnalyze this failure and self-correct your plan.`;
-            logger.logError(`Execution failed for tool "${call.name}"`, toolError);
           }
+        } catch (toolError) {
+          const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
+          observation = `[Tool Execution Error for "${call.name}"]: ${errMsg}\nAnalyze this failure and self-correct your plan.`;
+          logger.logError(`Execution failed for tool "${call.name}"`, toolError);
         }
 
         if (options?.onToolEnd) {
           options.onToolEnd(call.name, observation);
         }
 
-        if (call.name === 'edit_file' && call.arguments.path && options?.onDiffProposed) {
+        if ((call.name === 'edit_file' || call.name === 'apply_diff') && call.arguments.path && options?.onDiffProposed) {
           const chkMatch = observation.match(/Checkpoint saved:\s*([a-zA-Z0-9_-]+)/);
           const chkId = chkMatch ? chkMatch[1] : undefined;
           options.onDiffProposed(String(call.arguments.path), chkId);
@@ -319,20 +336,12 @@ When you have completed all tasks or verified the final solution, respond direct
           role: 'tool',
           name: call.name,
           content: observation,
-        });
+          tool_call_id: call.id,
+        } as any);
       }
 
       this.setState('THINKING', options?.onStateChange);
     }
-
-    this.setState('IDLE', options?.onStateChange);
-    const emergencyWarning = `[Safety Circuit Breaker Triggered] Logan Agent reached the maximum execution limit (${ReActEngine.MAX_STEPS} steps) for this task without converging. Autonomous execution halted to protect context window and token expenditure.`;
-    logger.logError('Safety Circuit Breaker limit reached.');
-    this.memoryManager.appendMessage({ role: 'assistant', content: emergencyWarning });
-
-    await FileIndexer.getInstance().syncDirtyFiles();
-
-    return emergencyWarning;
   }
 
   public getConversationHistory(): AgentMessage[] {

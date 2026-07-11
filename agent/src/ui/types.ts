@@ -15,7 +15,9 @@ export type WebviewCommandType =
   | 'DELETE_CHAT'
   | 'TOGGLE_TOOL'
   | 'GET_AVAILABLE_TOOLS'
-  | 'UPDATE_TOOL_SELECTION';
+  | 'UPDATE_TOOL_SELECTION'
+  | 'REQ_TIER_SETTINGS'
+  | 'SAVE_TIER_SETTINGS';
 
 export interface WebviewIncomingMessage {
   type: WebviewCommandType;
@@ -29,6 +31,11 @@ export interface WebviewIncomingMessage {
     enabled?: boolean;
     allSelected?: boolean;
     selectedTools?: string[];
+    tier?: string;
+    providerType?: string;
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
   };
 }
 
@@ -46,7 +53,9 @@ export type ExtensionEventType =
   | 'GENERATION_ABORTED'
   | 'SESSIONS_LIST_UPDATED'
   | 'CHAT_LOADED'
-  | 'AVAILABLE_TOOLS_DATA';
+  | 'AVAILABLE_TOOLS_DATA'
+  | 'TIER_SETTINGS_DATA'
+  | 'STREAM_DELTA';
 
 export type ToolCategory = 'File Ops' | 'Terminal' | 'Search & RAG' | 'Media' | 'Git' | 'Task Planning';
 
@@ -61,6 +70,7 @@ export interface ExtensionOutgoingEvent {
   type: ExtensionEventType;
   payload: {
     chunk?: string;
+    delta?: string;
     step?: number;
     description?: string;
     toolName?: string;
@@ -71,6 +81,7 @@ export interface ExtensionOutgoingEvent {
     sessions?: Array<{ id: string; title: string; timestamp: number }>;
     messages?: Array<{ role: string; content: string }>;
     tools?: ToolMetadataItem[];
+    tierSettings?: Record<string, { providerType: string; apiKey: string; baseUrl?: string; model: string }>;
     metrics?: {
       inputTokens: number;
       outputTokens: number;

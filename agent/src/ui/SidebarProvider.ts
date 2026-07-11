@@ -163,6 +163,42 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         break;
       }
 
+      case 'REQ_TIER_SETTINGS': {
+        const cfgMgr = ConfigurationManager.getInstance();
+        const tiers: Array<'light' | 'medium' | 'heavy' | 'embedding' | 'image' | 'audio'> = [
+          'light',
+          'medium',
+          'heavy',
+          'embedding',
+          'image',
+          'audio',
+        ];
+        const tierSettings: Record<string, { providerType: string; apiKey: string; baseUrl?: string; model: string }> = {};
+        for (const t of tiers) {
+          tierSettings[t] = cfgMgr.getTierConfig(t);
+        }
+        this.postMessage({
+          type: 'TIER_SETTINGS_DATA',
+          payload: { tierSettings },
+        });
+        break;
+      }
+
+      case 'SAVE_TIER_SETTINGS': {
+        const p = message.payload;
+        if (p && p.tier) {
+          const config = vscode.workspace.getConfiguration('logan');
+          await config.update(`tiers.${p.tier}.providerType`, p.providerType || 'openai', true);
+          await config.update(`tiers.${p.tier}.apiKey`, p.apiKey || '', true);
+          await config.update(`tiers.${p.tier}.baseUrl`, p.baseUrl || '', true);
+          await config.update(`tiers.${p.tier}.model`, p.model || '', true);
+          PlanRouter.getInstance().resetRouterCache();
+          logger.logInfo(`Saved provider settings for tier "${p.tier}".`);
+          vscode.window.showInformationMessage(`Logan Agent: Updated settings for ${p.tier.toUpperCase()} tier.`);
+        }
+        break;
+      }
+
       case 'ABORT_GENERATION':
         logger.logInfo('User triggered emergency stop generation.');
         this.reactEngine.abortExecution();
@@ -205,11 +241,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       });
 
       const response = await this.reactEngine.executeTask(prompt, {
+        autoContinue: true,
+        maxAutoContinues: 3,
+        useStreaming: true,
         onStepLog: (step, log) => {
           this.postMessage({
             type: 'THINKING_STEP',
             payload: { step, description: log },
           });
+        },
+        onAutoContinue: (round, totalSteps) => {
+          this.postMessage({
+            type: 'THINKING_STEP',
+            payload: { step: 0, description: `🔄 Auto-continue ${round}/3 – total steps ${totalSteps}, resuming task...` },
+          });
+        },
+        onContentDelta: (delta) => {
+          this.postMessage({ type: 'STREAM_DELTA', payload: { delta } });
         },
         onReasoningDelta: (delta) => {
           this.postMessage({
@@ -223,14 +271,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             badgeText = `⚡ Reading file: ${args.path}`;
           } else if (toolName === 'create_file' && args.path) {
             badgeText = `📄 Creating file: ${args.path}`;
-          } else if (toolName === 'edit_file' && args.path) {
+          } else if ((toolName === 'edit_file' || toolName === 'apply_diff') && args.path) {
             badgeText = `✏️ Modifying file: ${args.path}`;
+          } else if (toolName === 'apply_diff' && args.file) {
+            badgeText = `✏️ Applying diff: ${args.file}`;
           } else if (toolName === 'run_terminal_command' && args.command) {
             badgeText = `💻 Running command: ${args.command}`;
           } else if (toolName === 'search_codebase' && args.query) {
             badgeText = `🔍 RAG Query: "${args.query}"`;
           } else if (toolName === 'generate_audio' && args.filePath) {
             badgeText = `🎵 Generating audio: ${args.filePath}`;
+          } else if (toolName === 'generate_image' && args.file_path) {
+            badgeText = `🎨 Generating image: ${args.file_path}`;
           }
           this.postMessage({
             type: 'TOOL_EXECUTION_START',
