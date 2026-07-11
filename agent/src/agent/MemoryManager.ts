@@ -107,9 +107,10 @@ ${transcript}`;
     try {
       const router = PlanRouter.getInstance();
       const { provider } = router.routeTask('LIGHT');
-      const summaryContent = await provider.complete(prompt, {
+      const result = await provider.complete(prompt, {
         maxTokens: 1024,
       });
+      const summaryContent = result.content;
 
       const summaryMessage: AgentMessage = {
         role: 'user',

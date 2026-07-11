@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { AgentState, AgentMessage } from './types';
-import { PlanRouter, TaskComplexity, TokenUsageMetrics } from '../providers';
+import { PlanRouter, TaskComplexity, TokenUsageMetrics, CompletionResult } from '../providers';
 import { ToolRegistry } from '../tools';
 import { MemoryManager } from './MemoryManager';
 import { LoganLogger } from '../utils';
@@ -226,9 +226,9 @@ When you have completed all tasks or verified the final solution, respond direct
         content: m.role === 'tool' ? `[Tool Observation]\n${m.content}` : m.content,
       }));
 
-      let assistantResponse: string;
+      let result: CompletionResult;
       try {
-        assistantResponse = await provider.complete(prompt, {
+        result = await provider.complete(prompt, {
           systemPrompt,
           messages: providerMessages,
           onUsageMetrics: options?.onUsageMetrics,
@@ -251,9 +251,9 @@ When you have completed all tasks or verified the final solution, respond direct
         return '[Generation Aborted by User]';
       }
 
-      this.memoryManager.appendMessage({ role: 'assistant', content: assistantResponse });
+      this.memoryManager.appendMessage({ role: 'assistant', content: result.content });
 
-      const toolCalls = extractToolCalls(assistantResponse);
+      const toolCalls = extractToolCalls(result.content, result.toolCalls);
       if (toolCalls.length === 0) {
         logger.logInfo(`Step ${stepCount} converged to final answer (0 tool calls).`);
         this.setState('IDLE', options?.onStateChange);
@@ -262,7 +262,7 @@ When you have completed all tasks or verified the final solution, respond direct
         logger.logInfo('Executing JIT sync of modified files upon task convergence...');
         await FileIndexer.getInstance().syncDirtyFiles();
 
-        return assistantResponse;
+        return result.content;
       }
 
       logger.logInfo(`Extracted ${toolCalls.length} tool call(s): ${toolCalls.map((c) => c.name).join(', ')}`);

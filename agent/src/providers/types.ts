@@ -17,6 +17,24 @@ export interface CacheBreakpoint {
 }
 
 /**
+ * Normalized tool call extracted from a provider response.
+ */
+export interface ToolCall {
+  id?: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+/**
+ * Structured completion result with native tool calling support.
+ */
+export interface CompletionResult {
+  content: string;
+  toolCalls: ToolCall[];
+  finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter';
+}
+
+/**
  * Configuration options for completion and streaming requests.
  */
 export interface CompletionOptions {
@@ -31,8 +49,25 @@ export interface CompletionOptions {
   abortSignal?: AbortSignal;
   onUsageMetrics?: (metrics: TokenUsageMetrics) => void;
   onReasoningDelta?: (delta: string) => void;
-  messages?: Array<{ role: string; content: string }>;
+  onContentDelta?: (delta: string) => void;
+  messages?: Array<{ role: string; content: string; tool_call_id?: string; name?: string; tool_calls?: ToolCall[] }>;
   tools?: Array<{ name: string; description: string; inputSchema: unknown }>;
+}
+
+/**
+ * Streaming chunk emitted by AI providers.
+ */
+export interface StreamChunk {
+  contentDelta?: string;
+  reasoningDelta?: string;
+  toolCallDelta?: {
+    index: number;
+    id?: string;
+    name?: string;
+    argumentsDelta?: string;
+  };
+  usage?: TokenUsageMetrics;
+  finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter';
 }
 
 /**
@@ -57,15 +92,16 @@ export interface AIProvider {
    * @param prompt The incoming prompt or user instruction string.
    * @param options Optional configuration and override options.
    */
-  complete(prompt: string, options?: CompletionOptions): Promise<string>;
+  complete(prompt: string, options?: CompletionOptions): Promise<CompletionResult>;
 
   /**
    * Execute an asynchronous streaming completion request.
+   * Yields structured stream chunks with content, reasoning, and tool_calls deltas.
    *
    * @param prompt The incoming prompt or user instruction string.
    * @param options Optional configuration and override options.
    */
-  stream(prompt: string, options?: CompletionOptions): AsyncIterable<string>;
+  stream(prompt: string, options?: CompletionOptions): AsyncIterable<StreamChunk>;
 
   /**
    * Generate dense numerical embedding vectors for code or query text strings.
