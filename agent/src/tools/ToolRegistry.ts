@@ -5,6 +5,11 @@ import { RunTerminalCommandTool } from './terminalTool';
 import { WebSearchTool } from './webSearchTool';
 import { SearchCodebaseTool } from './searchCodebaseTool';
 import { GenerateAudioTool } from './mediaTools';
+import { ApplyDiffTool } from './applyDiffTool';
+import { GitStatusTool, GitDiffTool, GitCommitTool, GitLogTool } from './gitTools';
+import { TodoListTool } from './todoTool';
+import { ReadDiagnosticsTool } from './diagnosticsTool';
+import { GenerateImageTool } from './imageTool';
 
 export interface NormalizedToolSchema {
   name: string;
@@ -12,7 +17,7 @@ export interface NormalizedToolSchema {
   inputSchema: ToolParameterSchema;
 }
 
-export type ToolCategory = 'File Ops' | 'Terminal' | 'Search & RAG' | 'Media';
+export type ToolCategory = 'File Ops' | 'Terminal' | 'Search & RAG' | 'Media' | 'Git' | 'Task Planning';
 
 export interface ToolMetadataItem {
   name: string;
@@ -50,6 +55,16 @@ export class ToolRegistry {
     this.registerTool(new WebSearchTool());
     this.registerTool(new SearchCodebaseTool());
     this.registerTool(new GenerateAudioTool());
+    
+    // New Tools Ported from v0.3.0
+    this.registerTool(new ApplyDiffTool());
+    this.registerTool(new GitStatusTool());
+    this.registerTool(new GitDiffTool());
+    this.registerTool(new GitCommitTool());
+    this.registerTool(new GitLogTool());
+    this.registerTool(new TodoListTool());
+    this.registerTool(new ReadDiagnosticsTool());
+    this.registerTool(new GenerateImageTool());
   }
 
   public registerTool(tool: Tool, enabled: boolean = true): void {
@@ -91,6 +106,7 @@ export class ToolRegistry {
       case 'create_file':
       case 'list_dir':
       case 'edit_file':
+      case 'apply_diff':
         return 'File Ops';
       case 'run_terminal_command':
         return 'Terminal';
@@ -99,7 +115,16 @@ export class ToolRegistry {
       case 'search_codebase':
         return 'Search & RAG';
       case 'generate_audio':
+      case 'generate_image':
         return 'Media';
+      case 'git_status':
+      case 'git_diff':
+      case 'git_commit':
+      case 'git_log':
+        return 'Git';
+      case 'todo_list':
+      case 'read_diagnostics':
+        return 'Task Planning';
       default:
         return 'File Ops';
     }

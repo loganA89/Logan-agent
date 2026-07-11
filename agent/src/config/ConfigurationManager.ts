@@ -18,6 +18,7 @@ export type SupportedProviderType =
   | 'suno'
   | 'ollama'
   | 'openrouter'
+  | 'perchance'
   | 'custom';
 
 export interface TierProviderConfig {
