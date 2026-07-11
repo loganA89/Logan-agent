@@ -4,8 +4,14 @@
   "description": "High-performance AI coding agent extension for VS Code featuring modular LLM routing, token scrubbing, and advanced ReAct workflows.",
   "version": "0.3.0",
   "publisher": "logan-team",
+  "icon": "icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/loganA89/Logan-agent"
+  },
   "engines": {
-    "vscode": "^1.125.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "AI",
