@@ -212,15 +212,18 @@
     "compile": "./node_modules/.bin/tsc --noEmit && node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
-    "typecheck": "./node_modules/.bin/tsc --noEmit"
+    "typecheck": "./node_modules/.bin/tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@xenova/transformers": "^2.17.2",
     "openai": "^6.45.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
     "@types/vscode": "^1.125.0",
     "esbuild": "^0.20.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.0"
   }
 }
