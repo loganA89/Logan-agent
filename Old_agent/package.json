@@ -1,0 +1,128 @@
+{
+  "name": "logan-agent",
+  "displayName": "Logan Agent",
+  "description": "High-performance AI coding agent extension for VS Code featuring modular LLM routing, token scrubbing, and advanced ReAct workflows.",
+  "version": "0.2.0",
+  "publisher": "logan-team",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "activationEvents": [
+    "onCommand:logan.start"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "logan.start",
+        "title": "Logan Agent: Start Assistant"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "logan-sidebar-container",
+          "title": "Logan Agent",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "logan-sidebar-container": [
+        {
+          "type": "webview",
+          "id": "logan.sidebarView",
+          "name": "Logan Agent Assistant"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Logan Agent",
+      "properties": {
+        "logan.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Global default API key used to authenticate with AI provider endpoints."
+        },
+        "logan.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Global optional Base URL override for custom AI endpoints."
+        },
+        "logan.activePlan": {
+          "type": "string",
+          "enum": [
+            "economy",
+            "pro"
+          ],
+          "default": "economy",
+          "description": "Select the active pricing and routing plan tier."
+        },
+        "logan.models.light": {
+          "type": "string",
+          "default": "gemini-2.5-flash-lite",
+          "description": "Model override for light complexity tasks."
+        },
+        "logan.models.medium": {
+          "type": "string",
+          "default": "gapgpt-qwen-3.6",
+          "description": "Model override for medium complexity coding tasks."
+        },
+        "logan.models.heavy": {
+          "type": "string",
+          "default": "gapgpt-qwen-3.6-thinking",
+          "description": "Model override for heavy reasoning tasks."
+        },
+        "logan.tiers.light": {
+          "type": "object",
+          "default": {},
+          "description": "Independent configuration for light tier tasks (properties: providerType, apiKey, baseUrl, model)."
+        },
+        "logan.tiers.medium": {
+          "type": "object",
+          "default": {},
+          "description": "Independent configuration for medium tier tasks (properties: providerType, apiKey, baseUrl, model)."
+        },
+        "logan.tiers.heavy": {
+          "type": "object",
+          "default": {},
+          "description": "Independent configuration for heavy reasoning tasks (properties: providerType, apiKey, baseUrl, model)."
+        },
+        "logan.tiers.embedding": {
+          "type": "object",
+          "default": {},
+          "description": "Independent configuration for embedding generation tasks (properties: providerType, apiKey, baseUrl, model)."
+        },
+        "logan.tiers.image": {
+          "type": "object",
+          "default": {},
+          "description": "Independent configuration for vision/image tasks (properties: providerType, apiKey, baseUrl, model)."
+        },
+        "logan.tiers.audio": {
+          "type": "object",
+          "default": {},
+          "description": "Independent configuration for audio/music generation tasks (properties: providerType, apiKey, baseUrl, model)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "./node_modules/.bin/tsc --noEmit && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "typecheck": "./node_modules/.bin/tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.125.0",
+    "esbuild": "^0.20.2",
+    "openai": "^6.45.0",
+    "typescript": "^5.9.3"
+  }
+}
