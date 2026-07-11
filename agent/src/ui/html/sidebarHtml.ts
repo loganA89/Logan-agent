@@ -1,5 +1,5 @@
 /**
- * Generates the responsive HTML/CSS/JS webview sidebar layout with multi-vendor tier selector, live cost tracking, sessions management, and dynamic tool configurator modals.
+ * Generates the responsive HTML/CSS/JS webview sidebar layout with multi-vendor tier selector, live cost tracking, sessions management, dynamic tool configurator, and provider settings modals.
  */
 export function getSidebarHtml(): string {
   return `<!DOCTYPE html>
@@ -44,6 +44,7 @@ export function getSidebarHtml(): string {
     }
     .toolbar {
       display: flex;
+      flex-wrap: wrap;
       gap: 6px;
       padding: 6px 12px;
       background: var(--vscode-sideBar-background);
@@ -65,14 +66,18 @@ export function getSidebarHtml(): string {
     .nav-btn:hover {
       background: var(--vscode-button-secondaryHoverBackground, #45494e);
     }
-    select {
-      background: var(--vscode-dropdown-background, #3c3c3c);
-      color: var(--vscode-dropdown-foreground, #f0f0f0);
-      border: 1px solid var(--vscode-dropdown-border, #3c3c3c);
-      padding: 4px 8px;
+    select, input[type="text"], input[type="password"] {
+      background: var(--vscode-input-background, #3c3c3c);
+      color: var(--vscode-input-foreground, #cccccc);
+      border: 1px solid var(--vscode-input-border, #3c3c3c);
+      padding: 6px 8px;
       border-radius: 3px;
-      cursor: pointer;
-      font-size: 11px;
+      box-sizing: border-box;
+      font-size: 12px;
+      width: 100%;
+    }
+    select:focus, input:focus {
+      outline: 1px solid var(--vscode-focusBorder, #007acc);
     }
     #stats-bar {
       padding: 6px 12px;
@@ -262,7 +267,7 @@ export function getSidebarHtml(): string {
       align-items: center;
       border-bottom: 1px solid var(--border-color);
       padding-bottom: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .modal-title-row {
       display: flex;
@@ -304,13 +309,6 @@ export function getSidebarHtml(): string {
       color: var(--vscode-textLink-foreground);
     }
     .search-input {
-      width: 100%;
-      padding: 6px 8px;
-      background: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-      border: 1px solid var(--vscode-input-border);
-      border-radius: 3px;
-      box-sizing: border-box;
       margin-bottom: 10px;
     }
     .master-toggle-row {
@@ -360,14 +358,25 @@ export function getSidebarHtml(): string {
       border-top: 1px solid var(--border-color);
       display: flex;
       justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: block;
     }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="title">🤖 Logan Agent v0.2.0</div>
+    <div class="title">🤖 Logan Agent v0.3.0</div>
     <select id="plan-selector">
-      <option value="economy">Economy (GapGPT / Gemini / Suno)</option>
+      <option value="economy">Economy (GapGPT / Gemini / Suno / Perchance)</option>
       <option value="pro" selected>Pro (Claude / DeepSeek / Alibaba / xAI)</option>
     </select>
   </div>
@@ -375,6 +384,7 @@ export function getSidebarHtml(): string {
     <button class="nav-btn" id="new-chat-btn">+ New Chat</button>
     <button class="nav-btn" id="history-btn">📂 History</button>
     <button class="nav-btn" id="tools-btn">🛠️ Configure Tools</button>
+    <button class="nav-btn" id="settings-btn">⚙️ Configure Providers</button>
   </div>
   <div id="stats-bar">
     <span>Tokens: <strong id="token-count">0 in / 0 out</strong></span>
@@ -384,7 +394,7 @@ export function getSidebarHtml(): string {
   <div id="chat-container">
     <div class="message-card message-assistant">
       <b>Logan Agent</b>
-      <div>Hello! I am ready to inspect code, build files, run terminal commands, or generate audio assets.</div>
+      <div>Hello! I am ready to inspect code, build files, run terminal commands, or generate image and audio assets.</div>
     </div>
   </div>
   <div class="input-section">
@@ -425,6 +435,57 @@ export function getSidebarHtml(): string {
     </div>
   </div>
 
+  <div id="settings-modal" class="modal">
+    <div class="modal-header">
+      <div class="modal-title-row"><span>⚙️ Provider & Tier Settings</span></div>
+      <button class="modal-close" onclick="document.getElementById('settings-modal').style.display='none'">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Task Tier to Configure</label>
+      <select id="setting-tier-select" onchange="window.selectTierTab(this.value)">
+        <option value="light">💡 Light (Triage / Quick Chat)</option>
+        <option value="medium">⚡ Medium (Standard Coding)</option>
+        <option value="heavy">🧠 Heavy (DeepSeek R1 / Reasoning)</option>
+        <option value="embedding">🔍 Embedding (RAG Indexing)</option>
+        <option value="image">🎨 Image Generation</option>
+        <option value="audio">🎵 Audio / Music Generation</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Provider Type</label>
+      <select id="setting-provider-type" onchange="window.onProviderChanged(this.value)">
+        <option value="deepseek">DeepSeek</option>
+        <option value="alibaba">Alibaba (Qwen)</option>
+        <option value="xai">xAI (Grok)</option>
+        <option value="gapgpt">GapGPT</option>
+        <option value="perchance">Perchance (100% Free Generators)</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="suno">Suno</option>
+        <option value="ollama">Ollama (Local)</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="local">Local Transformers.js (Free Embedding)</option>
+        <option value="custom">Custom Endpoint</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">API Key</label>
+      <input type="password" id="setting-api-key" placeholder="Enter API key (optional for Perchance/Ollama)...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Base URL</label>
+      <input type="text" id="setting-base-url" placeholder="https://api...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Model Name / Generator ID</label>
+      <input type="text" id="setting-model-name" placeholder="e.g. deepseek-reasoner, ai-image-generator, qwen-3.6">
+    </div>
+    <div class="modal-footer">
+      <button class="nav-btn" onclick="document.getElementById('settings-modal').style.display='none'">Close</button>
+      <button class="send-btn" onclick="window.saveCurrentTierSetting()">💾 Save Settings</button>
+    </div>
+  </div>
+
   <script>
     const vscode = acquireVsCodeApi();
     const planSelector = document.getElementById('plan-selector');
@@ -443,6 +504,7 @@ export function getSidebarHtml(): string {
     let currentCostUSD = 0.0;
     let currentDetailsBox = null;
     let currentToolsList = [];
+    let currentTierSettings = {};
 
     planSelector.addEventListener('change', (e) => {
       vscode.postMessage({ type: 'SWITCH_PLAN', payload: { plan: e.target.value } });
@@ -461,6 +523,74 @@ export function getSidebarHtml(): string {
       document.getElementById('tools-modal').style.display = 'block';
       vscode.postMessage({ type: 'GET_AVAILABLE_TOOLS' });
     });
+
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      document.getElementById('settings-modal').style.display = 'block';
+      vscode.postMessage({ type: 'REQ_TIER_SETTINGS' });
+    });
+
+    window.selectTierTab = function(tier) {
+      const cfg = currentTierSettings[tier] || {};
+      document.getElementById('setting-provider-type').value = cfg.providerType || 'openai';
+      document.getElementById('setting-api-key').value = cfg.apiKey || '';
+      document.getElementById('setting-base-url').value = cfg.baseUrl || '';
+      document.getElementById('setting-model-name').value = cfg.model || '';
+    };
+
+    window.onProviderChanged = function(pType) {
+      const baseUrlEl = document.getElementById('setting-base-url');
+      const modelEl = document.getElementById('setting-model-name');
+      if (pType === 'deepseek') {
+        baseUrlEl.value = 'https://api.deepseek.com/v1';
+        modelEl.placeholder = 'e.g. deepseek-reasoner, deepseek-chat';
+      } else if (pType === 'alibaba') {
+        baseUrlEl.value = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+        modelEl.placeholder = 'e.g. qwen-coder-plus, qwen-max';
+      } else if (pType === 'xai') {
+        baseUrlEl.value = 'https://api.x.ai/v1';
+        modelEl.placeholder = 'e.g. grok-2-1212, grok-beta';
+      } else if (pType === 'suno') {
+        baseUrlEl.value = 'https://api.suno.ai/v1';
+        modelEl.placeholder = 'e.g. suno-v3.5';
+      } else if (pType === 'perchance') {
+        baseUrlEl.value = 'https://perchance.org/api';
+        modelEl.placeholder = 'e.g. ai-image-generator, ai-text-plugin, character-generator';
+      } else if (pType === 'gapgpt') {
+        baseUrlEl.value = 'https://api.gapgpt.app/v1';
+        modelEl.placeholder = 'e.g. qwen-3.6, z-image-v1';
+      } else if (pType === 'ollama') {
+        baseUrlEl.value = 'http://localhost:11434/v1';
+        modelEl.placeholder = 'e.g. qwen2.5-coder:7b, llama3.2';
+      } else if (pType === 'openrouter') {
+        baseUrlEl.value = 'https://openrouter.ai/api/v1';
+        modelEl.placeholder = 'e.g. anthropic/claude-3.5-sonnet';
+      } else if (pType === 'openai') {
+        baseUrlEl.value = 'https://api.openai.com/v1';
+        modelEl.placeholder = 'e.g. gpt-4o, o1-preview, text-embedding-3-small';
+      } else if (pType === 'anthropic') {
+        baseUrlEl.value = 'https://api.anthropic.com';
+        modelEl.placeholder = 'e.g. claude-3-5-sonnet-20241022';
+      } else if (pType === 'local') {
+        baseUrlEl.value = '';
+        modelEl.placeholder = 'Xenova/all-MiniLM-L6-v2 (free, offline)';
+        modelEl.value = 'Xenova/all-MiniLM-L6-v2';
+      }
+    };
+
+    window.saveCurrentTierSetting = function() {
+      const tier = document.getElementById('setting-tier-select').value;
+      const providerType = document.getElementById('setting-provider-type').value;
+      const apiKey = document.getElementById('setting-api-key').value.trim();
+      const baseUrl = document.getElementById('setting-base-url').value.trim();
+      const model = document.getElementById('setting-model-name').value.trim();
+
+      currentTierSettings[tier] = { providerType, apiKey, baseUrl, model };
+      vscode.postMessage({
+        type: 'SAVE_TIER_SETTINGS',
+        payload: { tier, providerType, apiKey, baseUrl, model }
+      });
+      document.getElementById('settings-modal').style.display = 'none';
+    };
 
     window.toggleTool = function(toolName, enabled) {
       const item = currentToolsList.find((t) => t.name === toolName);
@@ -497,6 +627,8 @@ export function getSidebarHtml(): string {
         { label: '📂 File Operations', key: 'File Ops' },
         { label: '💻 Terminal Execution', key: 'Terminal' },
         { label: '🔍 Search & RAG', key: 'Search & RAG' },
+        { label: '🌿 Git Version Control', key: 'Git' },
+        { label: '📋 Task Planning', key: 'Task Planning' },
         { label: '🎵 Media Generation', key: 'Media' }
       ];
 
@@ -598,7 +730,11 @@ export function getSidebarHtml(): string {
       const msg = event.data;
       if (!msg) return;
 
-      if (msg.type === 'AVAILABLE_TOOLS_DATA') {
+      if (msg.type === 'TIER_SETTINGS_DATA') {
+        currentTierSettings = msg.payload.tierSettings || {};
+        const activeTier = document.getElementById('setting-tier-select').value;
+        window.selectTierTab(activeTier);
+      } else if (msg.type === 'AVAILABLE_TOOLS_DATA') {
         currentToolsList = msg.payload.tools || [];
         renderToolsList();
       } else if (msg.type === 'SESSIONS_LIST_UPDATED') {
@@ -622,7 +758,7 @@ export function getSidebarHtml(): string {
         chatContainer.innerHTML = '';
         const msgs = msg.payload.messages || [];
         if (msgs.length === 0) {
-          appendCard('Logan Agent', 'Hello! I am ready to inspect code, build files, run terminal commands, or generate audio assets.', 'assistant');
+          appendCard('Logan Agent', 'Hello! I am ready to inspect code, build files, run terminal commands, or generate image and audio assets.', 'assistant');
         } else {
           msgs.forEach((m) => {
             if (m.role === 'user' && !m.content.startsWith('[SYSTEM CONTEXT COMPACTION')) {
@@ -664,8 +800,30 @@ export function getSidebarHtml(): string {
           '</div>';
         chatContainer.appendChild(diffCard);
         chatContainer.scrollTop = chatContainer.scrollHeight;
+      } else if (msg.type === 'STREAM_DELTA') {
+        setGenerating(true);
+        if (!window._streamCard) {
+          window._streamCard = appendCard('Logan Agent', '', 'assistant');
+          window._streamContent = '';
+        }
+        window._streamContent += msg.payload.delta || '';
+        const pre = window._streamCard.querySelector('pre');
+        if (pre) pre.textContent = window._streamContent;
+        chatContainer.scrollTop = chatContainer.scrollHeight;
       } else if (msg.type === 'STREAM_CHUNK') {
         setGenerating(false);
+        if (window._streamCard) {
+          const rbBtn = document.createElement('button');
+          rbBtn.className = 'btn-rollback';
+          rbBtn.textContent = '⏪ Undo / Rewind Step';
+          rbBtn.onclick = function() { window.triggerRollback('latest'); };
+          window._streamCard.appendChild(document.createElement('br'));
+          window._streamCard.appendChild(rbBtn);
+          window._streamCard = null;
+          window._streamContent = '';
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+          return;
+        }
         const card = appendCard('Logan Agent', msg.payload.chunk || '', 'assistant');
         const rbBtn = document.createElement('button');
         rbBtn.className = 'btn-rollback';
