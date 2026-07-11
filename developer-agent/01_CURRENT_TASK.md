@@ -1,40 +1,170 @@
-# Current Task — Phase 0: Baseline Recovery
+# Current Task — Phase 1: Port Native Tool Calling & New Tools from v0.3.0
 
 ## Status: PENDING — Awaiting Developer Agent
 
 ## Objective
-Establish `Old_agent/` (v0.2.0) as the clean project baseline, verify build pipeline, and prepare for incremental feature porting from v0.3.0.
+Port the native tool calling infrastructure and new tools from v0.3.0 (`Logan-agent/agent/`) into the stable baseline (`agent/`). Each sub-task must pass `tsc --noEmit` with 0 errors before committing.
 
-## Tasks
+## CRITICAL RULE
+After EVERY sub-task: run `npx tsc --noEmit` and `node esbuild.js` — both must exit 0 before committing. If they fail, fix the errors before moving on.
 
-### Task 0.1 — Restructure Repository
-- [ ] Copy `Old_agent/` contents to a new root-level project directory (e.g., `agent/`)
-- [ ] Verify directory structure is correct
-- [ ] Do NOT delete `Old_agent/` or `Logan-agent/agent/` yet (keep for reference)
+## Reference Source
+All "donor" code lives in `Logan-agent/agent/src/`. Compare with current baseline in `agent/src/`. Do NOT copy files blindly — adapt them to match the current baseline's type system.
 
-### Task 0.2 — Fix package.json
-- [ ] Move `@types/node`, `@types/vscode`, `typescript`, `esbuild` from `dependencies` to `devDependencies`
-- [ ] Keep `openai` in `dependencies` (it's the only runtime dependency)
-- [ ] Run `npm install` to verify
+---
 
-### Task 0.3 — Verify Build Pipeline
-- [ ] Run `npx tsc --noEmit` → must produce 0 errors
-- [ ] Run `node esbuild.js` → must produce 0 errors
-- [ ] Confirm `out/extension.js` exists after build
+## Sub-Task 1.1 — Upgrade Provider Type System
+**Files to modify:** `agent/src/providers/types.ts`
 
-### Task 0.4 — Commit and Push
-- [ ] Stage changes
-- [ ] Commit with message: `chore: establish v0.2.0 as recovery baseline`
-- [ ] Push to main branch
+Add these types (from `Logan-agent/agent/src/providers/types.ts`):
+- `ToolCall` interface (id?, name, arguments)
+- `CompletionResult` interface (content, toolCalls, finishReason)
+- `StreamChunk` interface (contentDelta, reasoningDelta, toolCallDelta, usage, finishReason)
+- Add `onContentDelta` callback to `CompletionOptions`
+- Expand `messages` array type in `CompletionOptions` to include `tool_call_id`, `name`, `tool_calls` fields
 
-## Verification Gates
-After completion, ALL of the following must be true:
-1. `npx tsc --noEmit` exits with code 0
-2. `node esbuild.js` exits with code 0
-3. `out/extension.js` file exists and is >10KB
-4. `package.json` has correct dependency classification
+Update the `AIProvider` interface:
+- Change `complete()` return type from `Promise<string>` to `Promise<CompletionResult>`
+- Change `stream()` return type from `AsyncIterable<string>` to `AsyncIterable<StreamChunk>`
 
-## Notes
-- The Architect Agent has already verified that v0.2.0 compiles and bundles successfully
-- This phase is about organizing the repo, not changing any source code
-- After this phase completes, we proceed to Phase 1 (porting v0.3.0 features)
+**Commit message:** `feat: add ToolCall, CompletionResult, StreamChunk types to provider interface`
+
+⚠️ **WARNING**: After this change, `OpenAICompatibleProvider.ts`, `AnthropicProvider.ts`, and every file that calls `provider.complete()` will break because return type changed. You MUST complete sub-tasks 1.2 and 1.3 before tsc will pass. Do all three (1.1 + 1.2 + 1.3) as a single commit.
+
+---
+
+## Sub-Task 1.2 — Upgrade OpenAICompatibleProvider
+**Files to modify:** `agent/src/providers/OpenAICompatibleProvider.ts`
+
+Replace entirely with the v0.3.0 version from `Logan-agent/agent/src/providers/OpenAICompatibleProvider.ts`.
+
+This version:
+- Returns `CompletionResult` (with `toolCalls` array) instead of raw string
+- Has proper streaming with `StreamChunk` yield
+- Has `embed()` method
+- Has auto-retaining tool check logic
+- Properly maps tool definitions to OpenAI format
+
+---
+
+## Sub-Task 1.3 — Upgrade AnthropicProvider
+**Files to modify:** `agent/src/providers/AnthropicProvider.ts`
+
+Replace entirely with the v0.3.0 version from `Logan-agent/agent/src/providers/AnthropicProvider.ts`.
+
+This version:
+- Returns `CompletionResult` instead of raw string
+- Has native `tool_use` content block parsing
+- Has prompt caching via `cache_control` headers
+- Stream method wraps `complete()` (fake streaming — acceptable for now)
+
+---
+
+## Sub-Task 1.4 — Fix All Callers of provider.complete()
+**Files to check/modify:**
+- `agent/src/agent/ReActEngine.ts` — The main caller. The v0.2.0 version calls `provider.complete()` and expects a string. After 1.1-1.3, it returns `CompletionResult`. You need to update the engine to use `result.content` and handle `result.toolCalls` if present.
+- `agent/src/agent/MemoryManager.ts` — Calls `provider.complete()` in `compactHistory()`. Must use `.content` from result.
+- `agent/src/tools/searchCodebaseTool.ts` — Calls `provider.embed()` — verify this still works.
+- `agent/src/rag/FileIndexer.ts` — Calls `provider.embed()` — verify this still works.
+
+**Key change in ReActEngine**: The v0.2.0 engine extracts tool calls from XML text (`extractToolCalls(assistantResponse)`). After this upgrade, native tool calls come from `CompletionResult.toolCalls`. Update the extraction logic to check native tool calls first, then fall back to XML parsing.
+
+Study the v0.3.0 `ReActEngine.ts` (`Logan-agent/agent/src/agent/ReActEngine.ts`) for reference, but do NOT copy it wholesale — it has streaming/auto-continue features we'll add in Phase 2. For now, just fix the `complete()` return type handling.
+
+**Commit message for 1.1+1.2+1.3+1.4 combined:** `feat: upgrade provider system to native tool calling with CompletionResult`
+
+---
+
+## Sub-Task 1.5 — Add `items` to ToolParameterSchema
+**Files to modify:** `agent/src/tools/types.ts`
+
+The current `ToolParameterSchema` properties type is:
+```typescript
+properties: Record<string, {
+  type: string;
+  description: string;
+  enum?: string[];
+  default?: unknown;
+}>;
+```
+
+Add `items?: { type: string }` to the property schema object to support array-type parameters:
+```typescript
+properties: Record<string, {
+  type: string;
+  description: string;
+  enum?: string[];
+  default?: unknown;
+  items?: { type: string };
+}>;
+```
+
+**Commit message:** `fix: add items field to ToolParameterSchema for array parameters`
+
+---
+
+## Sub-Task 1.6 — Port New Tools
+**New files to create** (copy from `Logan-agent/agent/src/tools/`):
+- `agent/src/tools/applyDiffTool.ts`
+- `agent/src/tools/gitTools.ts`
+- `agent/src/tools/todoTool.ts`
+- `agent/src/tools/diagnosticsTool.ts`
+- `agent/src/tools/imageTool.ts`
+
+**Files to modify:**
+- `agent/src/tools/index.ts` — Add exports for the 5 new tool files
+- `agent/src/tools/ToolRegistry.ts` — Import and register the new tools, update `ToolCategory` type to add `'Git'` and `'Task Planning'`, update `resolveCategory()` switch cases
+
+**Commit message:** `feat: port applyDiff, git, todo, diagnostics, image tools from v0.3.0`
+
+---
+
+## Sub-Task 1.7 — Sync UI Types
+**Files to modify:** `agent/src/ui/types.ts`
+
+- Update `ToolCategory` type to match `ToolRegistry`: add `'Git'` and `'Task Planning'`
+- Verify `ToolMetadataItem` matches between `ui/types.ts` and `ToolRegistry.ts`
+
+**Commit message:** `fix: sync ToolCategory between ToolRegistry and UI types`
+
+---
+
+## Sub-Task 1.8 — Update Provider Exports
+**Files to modify:** `agent/src/providers/index.ts`
+
+If `PerchanceProvider` was ported, add its export. Also verify all new types (`ToolCall`, `CompletionResult`, `StreamChunk`) are properly exported.
+
+Check if `PlanRouter.ts` or `ProviderManager.ts` need updates for the new return types.
+
+**Commit message:** `chore: update provider exports and verify router compatibility`
+
+---
+
+## Execution Order
+
+**Must be done together (one commit):** 1.1 + 1.2 + 1.3 + 1.4
+**Then sequentially:** 1.5 → 1.6 → 1.7 → 1.8
+
+## Verification Gates (after ALL sub-tasks complete)
+```bash
+cd agent/
+npx tsc --noEmit          # Must exit 0
+node esbuild.js           # Must exit 0
+ls -la out/extension.js   # Must exist
+```
+
+## Report Format
+After completing Phase 1, report:
+```
+## Task Report
+- **Task**: Phase 1: Port Native Tool Calling & New Tools
+- **Status**: COMPLETED / BLOCKED / PARTIAL
+- **Sub-tasks completed**: [list]
+- **Changes**: [list of files created/modified]
+- **Verification**:
+  - tsc: PASS/FAIL (error count)
+  - esbuild: PASS/FAIL (error count)
+  - extension.js size: [size]
+- **Commits**: [list of commit hashes]
+- **Notes**: [any issues, questions, or observations]
+```
