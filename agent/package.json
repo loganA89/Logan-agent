@@ -2,7 +2,7 @@
   "name": "logan-agent",
   "displayName": "Logan Agent",
   "description": "High-performance AI coding agent extension for VS Code featuring modular LLM routing, token scrubbing, and advanced ReAct workflows.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "logan-team",
   "engines": {
     "vscode": "^1.85.0"
@@ -78,35 +78,131 @@
           "default": "gapgpt-qwen-3.6-thinking",
           "description": "Model override for heavy reasoning tasks."
         },
-        "logan.tiers.light": {
-          "type": "object",
-          "default": {},
-          "description": "Independent configuration for light tier tasks (properties: providerType, apiKey, baseUrl, model)."
+        "logan.tiers.light.providerType": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gapgpt", "deepseek", "alibaba", "xai", "suno", "perchance", "ollama", "openrouter", "custom"],
+          "default": "gapgpt",
+          "description": "Provider type for light complexity tasks."
         },
-        "logan.tiers.medium": {
-          "type": "object",
-          "default": {},
-          "description": "Independent configuration for medium tier tasks (properties: providerType, apiKey, baseUrl, model)."
+        "logan.tiers.light.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key override for light tier."
         },
-        "logan.tiers.heavy": {
-          "type": "object",
-          "default": {},
-          "description": "Independent configuration for heavy reasoning tasks (properties: providerType, apiKey, baseUrl, model)."
+        "logan.tiers.light.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL override for light tier."
         },
-        "logan.tiers.embedding": {
-          "type": "object",
-          "default": {},
-          "description": "Independent configuration for embedding generation tasks (properties: providerType, apiKey, baseUrl, model)."
+        "logan.tiers.light.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier override for light tier."
         },
-        "logan.tiers.image": {
-          "type": "object",
-          "default": {},
-          "description": "Independent configuration for vision/image tasks (properties: providerType, apiKey, baseUrl, model)."
+        "logan.tiers.medium.providerType": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gapgpt", "deepseek", "alibaba", "xai", "suno", "perchance", "ollama", "openrouter", "custom"],
+          "default": "gapgpt",
+          "description": "Provider type for medium complexity coding tasks."
         },
-        "logan.tiers.audio": {
-          "type": "object",
-          "default": {},
-          "description": "Independent configuration for audio/music generation tasks (properties: providerType, apiKey, baseUrl, model)."
+        "logan.tiers.medium.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key override for medium tier."
+        },
+        "logan.tiers.medium.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL override for medium tier."
+        },
+        "logan.tiers.medium.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier override for medium tier."
+        },
+        "logan.tiers.heavy.providerType": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gapgpt", "deepseek", "alibaba", "xai", "suno", "perchance", "ollama", "openrouter", "custom"],
+          "default": "deepseek",
+          "description": "Provider type for heavy reasoning tasks."
+        },
+        "logan.tiers.heavy.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key override for heavy tier."
+        },
+        "logan.tiers.heavy.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL override for heavy tier."
+        },
+        "logan.tiers.heavy.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier override for heavy tier."
+        },
+        "logan.tiers.embedding.providerType": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gapgpt", "deepseek", "alibaba", "xai", "suno", "perchance", "ollama", "openrouter", "local", "custom"],
+          "default": "local",
+          "description": "Provider type for RAG embedding indexing. 'local' uses free on-device transformers.js (all-MiniLM-L6-v2)."
+        },
+        "logan.tiers.embedding.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key override for embedding tier."
+        },
+        "logan.tiers.embedding.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL override for embedding tier."
+        },
+        "logan.tiers.embedding.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier override for embedding tier."
+        },
+        "logan.tiers.image.providerType": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gapgpt", "deepseek", "alibaba", "xai", "suno", "perchance", "ollama", "openrouter", "custom"],
+          "default": "openai",
+          "description": "Provider type for image/vision tasks."
+        },
+        "logan.tiers.image.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key override for image tier."
+        },
+        "logan.tiers.image.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL override for image tier."
+        },
+        "logan.tiers.image.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier override for image tier."
+        },
+        "logan.tiers.audio.providerType": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gapgpt", "deepseek", "alibaba", "xai", "suno", "perchance", "ollama", "openrouter", "custom"],
+          "default": "suno",
+          "description": "Provider type for audio generation tasks."
+        },
+        "logan.tiers.audio.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key override for audio tier."
+        },
+        "logan.tiers.audio.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL override for audio tier."
+        },
+        "logan.tiers.audio.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model identifier override for audio tier."
         }
       }
     }
